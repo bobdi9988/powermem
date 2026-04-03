@@ -222,3 +222,6 @@ api_data/
 server_backup/
 *.backup
 
+# Local scratch file
+test.py
+
