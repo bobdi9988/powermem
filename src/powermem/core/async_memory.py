@@ -1063,6 +1063,8 @@ class AsyncMemory(MemoryBase):
             # Intelligent plugin lifecycle management on search
             if self._intelligence_plugin and self._intelligence_plugin.enabled:
                 updates, deletes = self._intelligence_plugin.on_search(processed_results)
+                intelligent_cfg = self._get_intelligent_memory_config()
+                hard_delete_on_search = bool(intelligent_cfg.get("hard_delete_on_search", True))
                 for mem_id, upd in updates:
                     try:
                         await self.storage.update_memory_async(mem_id, {**upd}, user_id, agent_id)
@@ -1070,7 +1072,19 @@ class AsyncMemory(MemoryBase):
                         continue
                 for mem_id in deletes:
                     try:
-                        await self.storage.delete_memory_async(mem_id, user_id, agent_id)
+                        if hard_delete_on_search:
+                            await self.storage.delete_memory_async(mem_id, user_id, agent_id)
+                        else:
+                            await self.storage.update_memory_async(
+                                mem_id,
+                                {
+                                    "should_forget": True,
+                                    "marked_for_forgetting_at": get_current_datetime().isoformat(),
+                                    "forget_policy": "search_soft_mark_only",
+                                },
+                                user_id,
+                                agent_id,
+                            )
                     except Exception:
                         continue
             
