@@ -153,7 +153,7 @@ class OutputFormatter:
         lines = []
         
         # Header
-        header = f"{'ID':<20} {'User ID':<22} {'Agent ID':<22} {'Content':<26}"
+        header = f"{'ID':<20} {'Created At':<21} {'User ID':<22} {'Agent ID':<22} {'Content':<26}"
         lines.append("=" * len(header))
         lines.append(f"Found {len(memories)} memories")
         lines.append("=" * len(header))
@@ -163,12 +163,15 @@ class OutputFormatter:
         # Rows
         for memory in memories:
             memory_id = str(memory.get("id") or memory.get("memory_id", "N/A"))[:18]
+            created_at = self._nullable_display(memory.get("created_at"))
+            created_at = str(created_at).replace("T", " ")
+            created_at = created_at[:19] if created_at not in ("NULL", "N/A") else created_at
             user_id = self._truncate(self._nullable_display(memory.get("user_id")), 20)
             agent_id = self._truncate(self._nullable_display(memory.get("agent_id")), 20)
             content = memory.get("memory") or memory.get("content", "N/A")
             content = self._truncate(content, 24)
             
-            lines.append(f"{memory_id:<20} {user_id:<22} {agent_id:<22} {content:<26}")
+            lines.append(f"{memory_id:<20} {created_at:<21} {user_id:<22} {agent_id:<22} {content:<26}")
         
         lines.append("=" * len(header))
         return "\n".join(lines)

@@ -13,6 +13,7 @@ class MemoryCreateRequest(BaseModel):
     user_id: Optional[str] = Field(None, description="User identifier")
     agent_id: Optional[str] = Field(None, description="Agent identifier")
     run_id: Optional[str] = Field(None, description="Run/conversation identifier")
+    created_at: Optional[Any] = Field(None, description="Custom creation time (ISO string, datetime, or unix timestamp)")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
     filters: Optional[Dict[str, Any]] = Field(None, description="Filter metadata for advanced filtering")
     scope: Optional[str] = Field(None, description="Memory scope (e.g., 'user', 'agent', 'session')")
@@ -24,6 +25,7 @@ class MemoryItem(BaseModel):
     """Single memory item for batch creation"""
     
     content: str = Field(..., description="Memory content")
+    created_at: Optional[Any] = Field(None, description="Custom creation time for this memory")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata for this memory")
     filters: Optional[Dict[str, Any]] = Field(None, description="Filter metadata for this memory")
     scope: Optional[str] = Field(None, description="Memory scope")

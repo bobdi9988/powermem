@@ -11,7 +11,7 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
-from powermem.utils.utils import get_current_datetime
+from powermem.utils.utils import get_current_datetime, parse_datetime
 from copy import deepcopy
 
 from .base import MemoryBase
@@ -410,6 +410,7 @@ class AsyncMemory(MemoryBase):
     async def add(
         self,
         messages,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -439,6 +440,13 @@ class AsyncMemory(MemoryBase):
                     - "added_entities" (List): List of added graph entities
         """
         try:
+            # Backward compatibility: legacy positional call `add(messages, user_id, ...)`.
+            if user_id is None and isinstance(created_at, str):
+                looks_like_datetime = any(ch in created_at for ch in ("-", ":", "T", "Z", "+", "/", " "))
+                if not looks_like_datetime:
+                    user_id = created_at
+                    created_at = None
+
             # Handle messages parameter
             if messages is None:
                 raise ValueError("messages must be provided (str, dict, or list[dict])")
@@ -470,10 +478,10 @@ class AsyncMemory(MemoryBase):
             
             # If not using intelligent memory, fall back to simple mode
             if not use_infer:
-                return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return await self._simple_add_async(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             
             # Intelligent memory mode: extract facts, search similar memories, and consolidate
-            return await self._intelligent_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+            return await self._intelligent_add_async(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             
         except Exception as e:
             logger.error(f"Failed to add memory: {e}")
@@ -483,6 +491,7 @@ class AsyncMemory(MemoryBase):
     async def _simple_add_async(
         self,
         messages,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -550,6 +559,7 @@ class AsyncMemory(MemoryBase):
         
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id
+        created_at = parse_datetime(created_at)
         
         # Store in database asynchronously
         memory_data = {
@@ -562,8 +572,8 @@ class AsyncMemory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": get_current_datetime(),
-            "updated_at": get_current_datetime(),
+            "created_at": created_at,
+            "updated_at": created_at,
         }
 
         if extra_fields:
@@ -610,6 +620,7 @@ class AsyncMemory(MemoryBase):
     async def _intelligent_add_async(
         self,
         messages,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -635,7 +646,7 @@ class AsyncMemory(MemoryBase):
             logger.debug("No facts extracted, skip intelligent add")
             if fallback_to_simple:
                 logger.warning("No facts extracted from messages, falling back to simple add mode")
-                return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return await self._simple_add_async(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
         logger.info(f"Extracted {len(facts)} facts: {facts}")
@@ -718,7 +729,7 @@ class AsyncMemory(MemoryBase):
             logger.warning("No actions returned from LLM, skip intelligent add")
             if fallback_to_simple:
                 logger.warning("No actions returned from LLM, falling back to simple add mode")
-                return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return await self._simple_add_async(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
         for action in actions:
@@ -738,6 +749,7 @@ class AsyncMemory(MemoryBase):
                     # Add new memory
                     memory_id = await self._create_memory_async(
                         content=action_text,
+                        created_at=created_at,
                         user_id=user_id,
                         agent_id=agent_id,
                         run_id=run_id,
@@ -829,7 +841,7 @@ class AsyncMemory(MemoryBase):
             logger.warning("Actions were processed but no results were created")
             if fallback_to_simple:
                 logger.warning("Falling back to simple add mode")
-                return await self._simple_add_async(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return await self._simple_add_async(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
     async def _add_to_graph_async(
@@ -875,6 +887,7 @@ class AsyncMemory(MemoryBase):
     async def _create_memory_async(
         self,
         content: str,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -923,6 +936,7 @@ class AsyncMemory(MemoryBase):
         
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id
+        created_at = parse_datetime(created_at)
         
         # Create memory data
         memory_data = {
@@ -935,8 +949,8 @@ class AsyncMemory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": get_current_datetime(),
-            "updated_at": get_current_datetime(),
+            "created_at": created_at,
+            "updated_at": created_at,
         }
         
         memory_id = await self.storage.add_memory_async(memory_data)

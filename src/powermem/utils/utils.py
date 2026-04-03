@@ -12,6 +12,7 @@ import re
 import time
 import threading
 from datetime import datetime, timezone
+from dateutil import parser
 from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,25 @@ def get_current_datetime() -> datetime:
     tz = get_timezone()
     # datetime.now() works with both ZoneInfo and pytz timezones
     return datetime.now(tz)
+
+
+def parse_datetime(value: Any) -> datetime:
+    """
+    Parse datetime string into datetime object.
+    """
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=get_timezone())
+        return value
+    elif isinstance(value, str):
+        parsed = parser.parse(value)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=get_timezone())
+        return parsed
+    elif isinstance(value, int):
+        return datetime.fromtimestamp(value, get_timezone())
+    else:
+        return get_current_datetime()
 
 
 def reset_timezone_cache():

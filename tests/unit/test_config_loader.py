@@ -210,3 +210,15 @@ def test_load_dotenv_powermem_env_file_wins_over_default(monkeypatch, tmp_path):
     monkeypatch.setenv("POWERMEM_ENV_FILE", str(custom))
     config_loader._load_dotenv_if_available()
     assert os.environ.get("DASHSCOPE_API_KEY") == "from-custom"
+
+
+def test_load_dotenv_stale_vector_store_collection_dropped_when_oceanbase_set(monkeypatch, tmp_path):
+    """Shell VECTOR_STORE_COLLECTION_NAME must not shadow OCEANBASE_COLLECTION from .env."""
+    monkeypatch.setenv("VECTOR_STORE_COLLECTION_NAME", "wrong_empty_table")
+    env_path = tmp_path / "only_oceanbase.env"
+    env_path.write_text("OCEANBASE_COLLECTION=memories\n", encoding="utf-8")
+    monkeypatch.setattr(config_loader, "_DEFAULT_ENV_FILE", None, raising=False)
+    monkeypatch.setenv("POWERMEM_ENV_FILE", str(env_path))
+    config_loader._load_dotenv_if_available()
+    assert os.environ.get("OCEANBASE_COLLECTION") == "memories"
+    assert "VECTOR_STORE_COLLECTION_NAME" not in os.environ

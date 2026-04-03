@@ -32,6 +32,7 @@ class MemoryService:
     def create_memory(
         self,
         content: str,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -46,6 +47,7 @@ class MemoryService:
         
         Args:
             content: Memory content
+            created_at: Optional custom creation timestamp
             user_id: User ID
             agent_id: Agent ID
             run_id: Run ID
@@ -64,6 +66,7 @@ class MemoryService:
         try:
             result = self.memory.add(
                 messages=content,
+                created_at=created_at,
                 user_id=user_id,
                 agent_id=agent_id,
                 run_id=run_id,
@@ -534,9 +537,11 @@ class MemoryService:
                 filters = memory_item.get("filters")
                 scope = memory_item.get("scope")
                 memory_type = memory_item.get("memory_type")
+                created_at = memory_item.get("created_at")
                 
                 result = self.memory.add(
                     messages=content,
+                    created_at=created_at,
                     user_id=user_id,
                     agent_id=agent_id,
                     run_id=run_id,

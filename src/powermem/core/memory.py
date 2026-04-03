@@ -12,7 +12,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timedelta
-from powermem.utils.utils import get_current_datetime
+from powermem.utils.utils import get_current_datetime, parse_datetime
 from copy import deepcopy
 
 from .base import MemoryBase
@@ -574,6 +574,7 @@ class Memory(MemoryBase):
     def add(
         self,
         messages,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -603,6 +604,13 @@ class Memory(MemoryBase):
                     - "added_entities" (List): List of added graph entities
         """
         try:
+            # Backward compatibility: legacy positional call `add(messages, user_id, ...)`.
+            if user_id is None and isinstance(created_at, str):
+                looks_like_datetime = any(ch in created_at for ch in ("-", ":", "T", "Z", "+", "/", " "))
+                if not looks_like_datetime:
+                    user_id = created_at
+                    created_at = None
+
             # Handle messages parameter
             if messages is None:
                 raise ValueError("messages must be provided (str, dict, or list[dict])")
@@ -634,10 +642,10 @@ class Memory(MemoryBase):
             
             # If not using intelligent memory, fall back to simple mode
             if not use_infer:
-                return self._simple_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return self._simple_add(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             
             # Intelligent memory mode: extract facts, search similar memories, and consolidate
-            return self._intelligent_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+            return self._intelligent_add(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             
         except Exception as e:
             logger.error(f"Failed to add memory: {e}")
@@ -647,6 +655,7 @@ class Memory(MemoryBase):
     def _simple_add(
         self,
         messages,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -731,6 +740,8 @@ class Memory(MemoryBase):
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id
         
+        created_at = parse_datetime(created_at)
+
         # Store in database
         memory_data = {
             "content": content,
@@ -742,8 +753,8 @@ class Memory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": get_current_datetime(),
-            "updated_at": get_current_datetime(),
+            "created_at": created_at,
+            "updated_at": created_at,
         }
 
         if extra_fields:
@@ -787,6 +798,7 @@ class Memory(MemoryBase):
     def _intelligent_add(
         self,
         messages,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -812,7 +824,7 @@ class Memory(MemoryBase):
             logger.debug("No facts extracted, skip intelligent add")
             if fallback_to_simple:
                 logger.warning("No facts extracted from messages, falling back to simple add mode")
-                return self._simple_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return self._simple_add(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
         logger.info(f"Extracted {len(facts)} facts: {facts}")
@@ -895,7 +907,7 @@ class Memory(MemoryBase):
             logger.warning("No actions returned from LLM, skip intelligent add")
             if fallback_to_simple:
                 logger.warning("No actions returned from LLM, falling back to simple add mode")
-                return self._simple_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return self._simple_add(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
         for action in actions:
@@ -915,6 +927,7 @@ class Memory(MemoryBase):
                     # Add new memory
                     memory_id = self._create_memory(
                         content=action_text,
+                        created_at=created_at,
                         user_id=user_id,
                         agent_id=agent_id,
                         run_id=run_id,
@@ -1004,7 +1017,7 @@ class Memory(MemoryBase):
             logger.warning("Actions were processed but no results were created")
             if fallback_to_simple:
                 logger.warning("Falling back to simple add mode")
-                return self._simple_add(messages, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
+                return self._simple_add(messages, created_at, user_id, agent_id, run_id, metadata, filters, scope, memory_type, prompt)
             return {"results": []}
 
     def _add_to_graph(
@@ -1050,6 +1063,7 @@ class Memory(MemoryBase):
     def _create_memory(
         self,
         content: str,
+        created_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
@@ -1099,6 +1113,7 @@ class Memory(MemoryBase):
         # Use self.agent_id as fallback if agent_id is not provided
         agent_id = agent_id or self.agent_id
         
+        created_at = parse_datetime(created_at)
         # Create memory data
         memory_data = {
             "content": content,
@@ -1110,8 +1125,8 @@ class Memory(MemoryBase):
             "category": category,
             "metadata": enhanced_metadata or {},
             "filters": filters or {},
-            "created_at": get_current_datetime(),
-            "updated_at": get_current_datetime(),
+            "created_at": created_at,
+            "updated_at": created_at,
         }
         
         memory_id = self.storage.add_memory(memory_data)
@@ -1122,6 +1137,7 @@ class Memory(MemoryBase):
         self,
         memory_id: int,
         content: str,
+        updated_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         existing_embeddings: Optional[Dict[str, Any]] = None,
@@ -1157,7 +1173,7 @@ class Memory(MemoryBase):
             "content": content,
             "embedding": embedding,
             "hash": content_hash,  # Update hash
-            "updated_at": get_current_datetime(),
+            "updated_at": parse_datetime(updated_at),
         }
         
         logger.debug(f"Updating memory {memory_id} with content: '{content[:50]}...'")
@@ -1406,6 +1422,7 @@ class Memory(MemoryBase):
         self,
         memory_id: int,
         content: str,
+        updated_at: Optional[Any] = None,
         user_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -1479,7 +1496,7 @@ class Memory(MemoryBase):
                 "metadata": enhanced_metadata,
                 "hash": content_hash,  # Update hash
                 "category": category,
-                "updated_at": get_current_datetime(),
+                "updated_at": parse_datetime(updated_at),
             }
             
             result = self.storage.update_memory(memory_id, update_data, user_id, agent_id)

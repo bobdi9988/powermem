@@ -7,7 +7,16 @@ This module defines the main CLI entry point and global options.
 import click
 import sys
 import os
+from pathlib import Path
 from typing import Optional
+
+
+def _resolve_env_file_path(path: str) -> str:
+    """Turn CLI ``-f`` / ``POWERMEM_ENV_FILE`` into an absolute path (cwd-relative if needed)."""
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    return str(p.resolve())
 
 # Version from package
 try:
@@ -34,7 +43,7 @@ class CLIContext:
             
             # Load config with custom env file if specified
             if self.env_file:
-                os.environ["POWERMEM_ENV_FILE"] = self.env_file
+                os.environ["POWERMEM_ENV_FILE"] = _resolve_env_file_path(self.env_file)
             
             try:
                 self._memory = create_memory()
@@ -50,8 +59,8 @@ class CLIContext:
             from powermem import auto_config
             
             if self.env_file:
-                os.environ["POWERMEM_ENV_FILE"] = self.env_file
-            
+                os.environ["POWERMEM_ENV_FILE"] = _resolve_env_file_path(self.env_file)
+
             try:
                 self._config = auto_config()
             except Exception as e:

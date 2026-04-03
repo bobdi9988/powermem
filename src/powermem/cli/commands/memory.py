@@ -330,9 +330,9 @@ def delete_cmd(ctx: CLIContext, memory_id, user_id, agent_id, yes):
 @click.option("--offset", "-o", default=0, type=int, help="Offset for pagination (default: 0)")
 @click.option(
     "--sort-by", "-s",
-    type=click.Choice(["created_at", "updated_at", "id"]),
-    default="created_at",
-    help="Sort field (default: created_at)"
+    type=click.Choice(["created_at", "updated_at", "id"], case_sensitive=False),
+    default=None,
+    help="Sort field (default: no SQL ORDER BY; use e.g. created_at for time order)"
 )
 @click.option(
     "--order",

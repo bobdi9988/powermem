@@ -315,7 +315,7 @@ class TestMemoryAdd:
         rc, out, err = cli_runner.pmem(
             f'memory add "CLI2 is my best friend" --user-id {test_data["user_id"]} '
             f'--agent-id {test_data["agent_id"]} --run-id {test_data["run_id"]} '
-            f'--metadata \'{{"category":"test"}}\''
+            f'--metadata "{{\\"category\\":\\"test\\"}}"'
         )
         assert_success(rc, out, err)
         assert_contains(rc, out, err, ["[SUCCESS]", "Memory ADD", "ID="])
@@ -368,7 +368,7 @@ class TestMemoryUpdate:
     def test_memory_update_with_metadata(self, cli_runner, test_data):
         """memory update --metadata should successfully update metadata"""
         rc, out, err = cli_runner.pmem(
-            f'memory update {test_data["memory_ids"][0]} "I like drinking coffee" --metadata \'{{"updated":true}}\''
+            f'memory update {test_data["memory_ids"][0]} "I like drinking coffee" --metadata "{{\\"updated\\":true}}"'
         )
         assert_success(rc, out, err)
         assert_contains(rc, out, err, ["[SUCCESS]", "Memory updated", "ID="])
@@ -550,12 +550,12 @@ class TestMemorySearch:
     
     def test_memory_search_with_filter(self, cli_runner):
         """memory search -f should support JSON filtering"""
-        rc, out, err = cli_runner.pmem('memory search "test" -f \'{"category":"pref"}\'')
+        rc, out, err = cli_runner.pmem('memory search "test" -f "{\\"category\\":\\"pref\\"}"')
         assert_success(rc, out, err, "Found", "results")
     
     def test_memory_search_invalid_filter(self, cli_runner):
         """memory search with invalid filter JSON should fail"""
-        rc, out, err = cli_runner.pmem('memory search "test" -f \'invalid json\'')
+        rc, out, err = cli_runner.pmem('memory search "test" -f "{invalid_json}"')
         assert_failure(rc, out, err, "Invalid filters JSON")
 
 

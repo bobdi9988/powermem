@@ -8,7 +8,8 @@ including vector stores, LLMs, and embedders, using async/await patterns.
 import pytest
 import uuid
 import asyncio
-from unittest.mock import MagicMock, patch
+from datetime import datetime
+from unittest.mock import MagicMock, patch, AsyncMock
 from powermem import AsyncMemory
 from powermem.storage.sqlite.sqlite_vector_store import SQLiteVectorStore
 from powermem.integrations.embeddings.mock import MockEmbeddings
@@ -324,3 +325,54 @@ class TestAsyncMemoryIntegration:
             # Verify deletion
             deleted_retrieved = await memory.get(memory_id, user_id=user_id)
             assert deleted_retrieved is None or deleted_retrieved.get("memory") is None
+
+    @pytest.mark.asyncio
+    async def test_async_add_memory_created_at_regression(self, async_memory_with_sqlite):
+        """created_at should be respected in async add path."""
+        memory = async_memory_with_sqlite
+        user_id = "test_user_async_created_at"
+        created_at = "2026-03-30T10:00:00+08:00"
+
+        result = await memory.add(
+            "User likes timestamped memories",
+            created_at=created_at,
+            user_id=user_id,
+            infer=False,
+        )
+
+        assert result is not None
+        assert "results" in result
+        assert len(result["results"]) > 0
+        assert result["results"][0]["created_at"] == created_at
+
+        memory_id = result["results"][0].get("id")
+        assert memory_id is not None
+
+        stored = await memory.get(memory_id, user_id=user_id)
+        assert stored is not None
+        parsed = datetime.fromisoformat(str(stored.get("created_at")).replace(" ", "T"))
+        assert parsed.year == 2026 and parsed.month == 3 and parsed.day == 30
+
+    @pytest.mark.asyncio
+    async def test_async_add_memory_created_at_infer_true_regression(self, async_memory_with_sqlite):
+        """created_at should be propagated in async intelligent add path."""
+        memory = async_memory_with_sqlite
+        created_at = "2026-03-30T10:00:00+08:00"
+
+        with patch.object(memory, "_extract_facts", new=AsyncMock(return_value=["fact1"])), \
+             patch.object(memory.storage, "search_memories_async", new=AsyncMock(return_value=[])), \
+             patch.object(memory, "_decide_memory_actions", new=AsyncMock(return_value=[{"event": "ADD", "text": "fact1", "id": "tmp-1"}])), \
+             patch.object(memory.storage, "add_memory_async", new=AsyncMock(return_value=4242)) as mock_add_memory:
+            result = await memory.add(
+                "User likes intelligent timestamped memories",
+                created_at=created_at,
+                user_id="test_user_async_created_at_infer",
+                infer=True,
+            )
+
+        assert result is not None
+        assert "results" in result
+        assert result["results"][0]["id"] == 4242
+        stored_payload = mock_add_memory.call_args[0][0]
+        assert isinstance(stored_payload["created_at"], datetime)
+        assert stored_payload["created_at"].isoformat() == created_at

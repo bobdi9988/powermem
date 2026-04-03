@@ -140,6 +140,7 @@ class UserMemory:
         self,
         messages,
         user_id: str,
+        created_at: Optional[Any] = None,
         agent_id: Optional[str] = None,
         run_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -206,6 +207,7 @@ class UserMemory:
             logger.info(f"Step 1: Storing messages event for user_id: {user_id}")
             memory_result = self.memory.add(
                 messages=messages,
+                created_at=created_at,
                 user_id=user_id,
                 agent_id=agent_id,
                 run_id=run_id,

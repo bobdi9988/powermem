@@ -8,7 +8,7 @@ with the interface expected by the Memory class.
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from powermem.storage.base import VectorStoreBase
 from powermem.utils.utils import serialize_datetime, get_current_datetime
@@ -465,7 +465,72 @@ class StorageAdapter:
         # If we reach here, memory existed in get_memory but couldn't be deleted
         logger.warning(f"Failed to delete memory {memory_id}")
         return False
-    
+
+    def _convert_list_rows_to_memories(
+        self,
+        raw_results: Optional[List[Any]],
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Normalize vector store list() rows into memory dicts (same rules as get_all_memories)."""
+        memories: List[Dict[str, Any]] = []
+        for result in raw_results or []:
+            # Match search_memories: accept any dict payload, including {} (truthy check would drop those).
+            if hasattr(result, "payload") and isinstance(getattr(result, "payload", None), dict):
+                payload = result.payload
+                memory_id = getattr(result, "id", None)
+            elif isinstance(result, dict):
+                payload = result
+                memory_id = result.get("id")
+            else:
+                continue
+
+            created_at = payload.get("created_at")
+            if created_at is not None and isinstance(created_at, datetime):
+                created_at = created_at.isoformat()
+
+            updated_at = payload.get("updated_at")
+            if updated_at is not None and isinstance(updated_at, datetime):
+                updated_at = updated_at.isoformat()
+
+            memory = {
+                "id": memory_id,
+                "memory": payload.get("data", ""),
+                "user_id": payload.get("user_id"),
+                "agent_id": payload.get("agent_id"),
+                "run_id": payload.get("run_id"),
+                "category": payload.get("category"),
+                "metadata": payload.get("metadata", {}),
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }
+
+            if user_id and memory.get("user_id") != user_id:
+                continue
+            if agent_id and memory.get("agent_id") != agent_id:
+                continue
+            if run_id and memory.get("run_id") != run_id:
+                continue
+            if filters:
+                for key, expected in filters.items():
+                    if key in ("user_id", "agent_id", "run_id"):
+                        continue
+                    actual = memory.get(key)
+                    if actual is None and memory.get("metadata"):
+                        actual = memory["metadata"].get(key)
+                    if actual != expected:
+                        break
+                else:
+                    memories.append(memory)
+                    continue
+                continue
+
+            memories.append(memory)
+
+        return memories
+
     def get_all_memories(
         self,
         user_id: Optional[str] = None,
@@ -494,80 +559,16 @@ class StorageAdapter:
             order_by=sort_by,
             order=order
         )
-        
+
         # OceanBase returns [memories], SQLite/PGVector return memories directly
         if results and isinstance(results[0], list):
             raw_results = results[0]
         else:
-            raw_results = results
-        
-        # Convert to expected format and apply filters
-        memories = []
-        for result in raw_results:
-            # Handle different result formats
-            if hasattr(result, 'payload') and result.payload:
-                # Result with payload attribute (e.g., from OceanBase OutputData)
-                payload = result.payload
-                memory_id = result.id
-            elif isinstance(result, dict):
-                # Direct dict result (e.g., from SQLite)
-                payload = result
-                memory_id = result.get("id")
-            else:
-                continue
-            
-            # Convert datetime objects to ISO format strings
-            created_at = payload.get("created_at")
-            if created_at is not None:
-                from datetime import datetime
-                if isinstance(created_at, datetime):
-                    created_at = created_at.isoformat()
-            
-            updated_at = payload.get("updated_at")
-            if updated_at is not None:
-                from datetime import datetime
-                if isinstance(updated_at, datetime):
-                    updated_at = updated_at.isoformat()
-            
-            memory = {
-                "id": memory_id,
-                "memory": payload.get("data", ""),  # Unified field name to match search_memories format
-                "user_id": payload.get("user_id"),
-                "agent_id": payload.get("agent_id"),
-                "run_id": payload.get("run_id"),
-                "category": payload.get("category"),
-                "metadata": payload.get("metadata", {}),
-                "created_at": created_at,
-                "updated_at": updated_at,
-            }
-            
-            # Apply filters (as double-check if database didn't filter)
-            # Note: If filters were applied at database level, these will all pass
-            if user_id and memory.get("user_id") != user_id:
-                continue
-            if agent_id and memory.get("agent_id") != agent_id:
-                continue
-            if run_id and memory.get("run_id") != run_id:
-                continue
-            # Apply extra filters (e.g. metadata or payload fields backend may not have filtered)
-            if filters:
-                for key, expected in filters.items():
-                    if key in ("user_id", "agent_id", "run_id"):
-                        continue
-                    actual = memory.get(key)
-                    if actual is None and memory.get("metadata"):
-                        actual = memory["metadata"].get(key)
-                    if actual != expected:
-                        break
-                else:
-                    pass  # all extra filters matched
-                    memories.append(memory)
-                    continue
-                continue  # one extra filter did not match, skip this memory
-            
-            memories.append(memory)
-        
-        return memories
+            raw_results = results if results is not None else []
+
+        return self._convert_list_rows_to_memories(
+            raw_results, user_id, agent_id, run_id, filters
+        )
 
     def count_all_memories(
         self,
@@ -831,6 +832,86 @@ class SubStorageAdapter(StorageAdapter):
         # Initialize migration status management (database-backed)
         from powermem.storage.migration_manager import SubStoreMigrationManager
         self.migration_manager = SubStoreMigrationManager(vector_store, self.collection_name)
+
+    def get_all_memories(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+        sort_by: Optional[str] = None,
+        order: str = "desc",
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        List memories from the main store and every sub-store, then merge.
+
+        search_memories routes to sub-stores, but a single vector_store.list() only hits the
+        main table; without merging, CLI ``memory list`` would miss rows stored in sub-tables.
+        """
+        if not self.sub_stores:
+            return super().get_all_memories(
+                user_id, agent_id, run_id, limit, offset, sort_by, order, filters
+            )
+
+        db_filters: Dict[str, Any] = {}
+        if user_id:
+            db_filters["user_id"] = user_id
+        if agent_id:
+            db_filters["agent_id"] = agent_id
+        if run_id:
+            db_filters["run_id"] = run_id
+
+        stores: List[VectorStoreBase] = [self.vector_store]
+        stores.extend(cfg.vector_store for cfg in self.sub_stores.values())
+
+        combined_raw: List[Any] = []
+        for vs in stores:
+            chunk = vs.list(
+                filters=db_filters if db_filters else None,
+                limit=None,
+                offset=0,
+                order_by=sort_by,
+                order=order,
+            )
+            if chunk and isinstance(chunk[0], list):
+                combined_raw.extend(chunk[0])
+            elif chunk:
+                combined_raw.extend(chunk)
+
+        seen_ids: Set[Any] = set()
+        deduped_raw: List[Any] = []
+        for item in combined_raw:
+            mid = None
+            if isinstance(item, dict):
+                mid = item.get("id")
+            elif hasattr(item, "id"):
+                mid = getattr(item, "id", None)
+            if mid is not None:
+                if mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+            deduped_raw.append(item)
+
+        memories = self._convert_list_rows_to_memories(
+            deduped_raw, user_id, agent_id, run_id, filters
+        )
+
+        if sort_by:
+            reverse = order.lower() == "desc"
+
+            def _sort_key(m: Dict[str, Any]) -> Any:
+                v = m.get(sort_by)
+                return v if v is not None else ""
+
+            try:
+                memories.sort(key=_sort_key, reverse=reverse)
+            except Exception:
+                logger.debug("SubStorageAdapter merged list sort failed", exc_info=True)
+
+        end: Optional[int] = None if limit is None else offset + limit
+        return memories[offset:end]
 
     # ==================== Sub Store Management Methods ====================
 

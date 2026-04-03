@@ -5,8 +5,10 @@ This module provides utilities for loading configuration from environment variab
 or other sources. It simplifies the configuration setup process.
 """
 
+import logging
 import os
 import warnings
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
@@ -18,14 +20,42 @@ from powermem.integrations.embeddings.config.sparse_base import BaseSparseEmbedd
 from powermem.integrations.llm.config.base import BaseLLMConfig
 from powermem.settings import _DEFAULT_ENV_FILE, settings_config
 
+logger = logging.getLogger(__name__)
+
+
+def _normalize_vector_store_env_aliases_after_dotenv() -> None:
+    """
+    ``python-dotenv`` only sets keys present in the file; it does not unset variables that
+    already exist in ``os.environ`` (e.g. from the parent shell).
+
+    ``OceanBaseConfig.collection_name`` accepts both ``OCEANBASE_COLLECTION`` and
+    ``VECTOR_STORE_COLLECTION_NAME``. If the shell still has a stale ``VECTOR_STORE_COLLECTION_NAME``
+    while the ``.env`` file only defines ``OCEANBASE_COLLECTION=memories``, both keys exist and
+    pydantic-settings may resolve the wrong one — the CLI then queries an empty table.
+
+    When ``OCEANBASE_*`` is set, drop the duplicate ``VECTOR_STORE_*`` names for the same fields.
+    """
+    if os.environ.get("OCEANBASE_COLLECTION"):
+        os.environ.pop("VECTOR_STORE_COLLECTION_NAME", None)
+        os.environ.pop("VECTOR_STORE_COLLECTION", None)
+    if os.environ.get("OCEANBASE_DATABASE"):
+        os.environ.pop("VECTOR_STORE_DB_NAME", None)
+        os.environ.pop("VECTOR_STORE_DATABASE", None)
+
 
 def _load_dotenv_if_available() -> None:
     """
     Load env files into os.environ before BaseSettings / Memory read configuration.
 
-    When the CLI passes ``--env-file``, it sets ``POWERMEM_ENV_FILE``; that path
-    must be loaded here. Otherwise only the auto-detected project ``.env`` is used
-    and custom paths are silently ignored.
+    When ``POWERMEM_ENV_FILE`` is set (CLI ``pmem -f path/.env`` sets this), **only** that file
+    is loaded (with override=True). We intentionally **do not** load ``_DEFAULT_ENV_FILE`` first:
+    that path is fixed when ``powermem.settings`` was first imported and can point at another
+    project's or the user's ``.env``, which would pollute ``os.environ`` and make the CLI talk
+    to the wrong database even though ``-f`` was passed.
+
+    If ``POWERMEM_ENV_FILE`` is unset, load ``_DEFAULT_ENV_FILE`` (import-time resolved path).
+
+    Tests may patch ``config_loader._DEFAULT_ENV_FILE`` to ``None`` to skip the default branch.
     """
     try:
         from dotenv import load_dotenv
@@ -35,11 +65,21 @@ def _load_dotenv_if_available() -> None:
     cli_env = os.environ.get("POWERMEM_ENV_FILE")
     if cli_env:
         path = os.path.expanduser(os.path.expandvars(cli_env.strip()))
+        p = Path(path).expanduser()
+        if not p.is_absolute():
+            p = Path.cwd() / p
+        path = str(p.resolve())
         if path and os.path.isfile(path):
-            load_dotenv(path, override=False)
+            load_dotenv(path, override=True)
+            _normalize_vector_store_env_aliases_after_dotenv()
+            return
+        logger.warning("POWERMEM_ENV_FILE is set but file not found or not a file: %s", cli_env)
 
     if _DEFAULT_ENV_FILE:
-        load_dotenv(_DEFAULT_ENV_FILE, override=False)
+        path = os.path.expanduser(os.path.expandvars(str(_DEFAULT_ENV_FILE).strip()))
+        if path and os.path.isfile(path):
+            load_dotenv(path, override=True)
+            _normalize_vector_store_env_aliases_after_dotenv()
 
 
 class _BasePowermemSettings(BaseSettings):

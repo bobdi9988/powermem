@@ -8,7 +8,7 @@ import logging
 import math
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timedelta
-from powermem.utils.utils import get_current_datetime
+from powermem.utils.utils import get_current_datetime, parse_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -126,16 +126,8 @@ class EbbinghausAlgorithm:
             Decay factor between 0 and 1
         """
         try:
-            # Handle both datetime objects and ISO string formats
-            if isinstance(created_at, str):
-                if created_at:
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                else:
-                    # If empty string, use current time
-                    created_at = get_current_datetime()
-            elif created_at is None:
-                # If None, use current time
-                created_at = get_current_datetime()
+            # Normalize to timezone-aware datetime to avoid naive/aware subtraction errors.
+            created_at = parse_datetime(created_at)
             
             time_elapsed = get_current_datetime() - created_at
             hours_elapsed = time_elapsed.total_seconds() / 3600
@@ -201,9 +193,7 @@ class EbbinghausAlgorithm:
             # Check recency
             created_at = memory.get("created_at")
             if created_at:
-                # Parse string to datetime if needed
-                if isinstance(created_at, str):
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                created_at = parse_datetime(created_at)
                 time_elapsed = get_current_datetime() - created_at
                 if time_elapsed > timedelta(hours=24):
                     return True
@@ -242,9 +232,7 @@ class EbbinghausAlgorithm:
             if access_count == 0:
                 # Check if memory is old enough to be forgotten
                 if created_at:
-                    # Parse string to datetime if needed
-                    if isinstance(created_at, str):
-                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    created_at = parse_datetime(created_at)
                     time_elapsed = get_current_datetime() - created_at
                     if time_elapsed > timedelta(days=7):
                         return True
@@ -269,9 +257,7 @@ class EbbinghausAlgorithm:
             # Check age
             created_at = memory.get("created_at")
             if created_at:
-                # Parse string to datetime if needed
-                if isinstance(created_at, str):
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                created_at = parse_datetime(created_at)
                 time_elapsed = get_current_datetime() - created_at
                 if time_elapsed > timedelta(days=30):
                     return True
@@ -299,9 +285,7 @@ class EbbinghausAlgorithm:
         """
         try:
             created_at = memory.get("created_at", get_current_datetime())
-            # Parse string to datetime if needed
-            if isinstance(created_at, str):
-                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            created_at = parse_datetime(created_at)
             importance = memory.get("importance_score", 0.5)
             
             # Adjust intervals based on importance

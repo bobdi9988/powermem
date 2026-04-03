@@ -52,6 +52,7 @@ async def create_memory(
     """Create a new memory"""
     results = service.create_memory(
         content=body.content,
+        created_at=body.created_at,
         user_id=body.user_id,
         agent_id=body.agent_id,
         run_id=body.run_id,
@@ -100,6 +101,7 @@ async def batch_create_memories(
     memories_data = [
         {
             "content": item.content,
+            "created_at": item.created_at,
             "metadata": item.metadata,
             "filters": item.filters,
             "scope": item.scope,
